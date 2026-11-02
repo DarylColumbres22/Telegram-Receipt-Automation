@@ -1,0 +1,1023 @@
+{
+  "name": "Telegram Receipt Processor Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {
+          "download": true,
+          "imageSize": "large"
+        }
+      },
+      "id": "5afd8bda-f949-4d25-93a8-2404038bc0a1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        -944,
+        160
+      ],
+      "webhookId": "1c7edeca-12ce-4c8e-8c23-9d9476059ad0",
+      "credentials": {
+        "telegramApi": {
+          "id": "USmiU8Evhuw1GfNI",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3.6-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3.6-flash"
+        },
+        "text": "You are a strict receipt data extraction system.\n\nAnalyze ONLY the provided image. Extract information that is clearly and directly visible in the image.\n\nReturn ONLY valid, minified JSON with exactly these three keys:\n\n{\"merchant\":\"\",\"amount\":\"\",\"date\":\"\"}\n\nRules:\n\n1. MERCHANT\n\n* \"merchant\" must be the actual store, business, restaurant, or merchant name clearly shown on the document.\n* Copy the name from the image as accurately as possible.\n* Do NOT invent, infer, or substitute a merchant name.\n* If the merchant name is not clearly visible, return \"\".\n\n2. AMOUNT\n\n* \"amount\" must be the GRAND TOTAL / TOTAL AMOUNT actually charged or paid for the transaction.\n* Prefer labels such as \"TOTAL\", \"GRAND TOTAL\", \"AMOUNT DUE\", or equivalent.\n* Do NOT use subtotal, tax, discount, cash payment, expected cash, change, balance, net sales, gross sales, refund amount, or other unrelated monetary values.\n* If the document is a shift report, sales summary, cash drawer report, or similar report and there is no clearly identifiable transaction grand total, return \"\".\n* Never select a monetary value merely because it is the largest, smallest, or most prominent number.\n* Never calculate or derive an amount from other values.\n* Never guess.\n* Return the amount as a plain numeric string with two decimal places when clearly available, without currency symbols or commas.\n* If the grand total cannot be clearly identified, return \"\".\n\n3. DATE\n\n* \"date\" must be the actual transaction/receipt date printed on the document.\n* Convert it to ISO format: YYYY-MM-DD.\n* Do NOT use the Telegram submission date.\n* Do NOT use a date inferred from filenames, timestamps, metadata, or surrounding context.\n* Do NOT guess missing dates.\n* If the date is partially visible, ambiguous, unreadable, or only appears as a placeholder such as \"MM/DD/YYYY\", return \"\".\n* If multiple dates appear, use the date associated with the actual transaction/receipt, not a shift-opened or shift-closed date unless it is clearly the receipt transaction date.\n\n4. ANTI-HALLUCINATION RULE\n\n* Use ONLY information that is visibly supported by the image.\n* NEVER fabricate, guess, infer, autocomplete, or make up a value.\n* If you are uncertain about ANY field, return \"\" for that field.\n* An empty string is always preferable to an incorrect value.\n\n5. DOCUMENT TYPE\n\n* If the image is not a normal sales receipt, still extract the merchant if clearly visible.\n* For shift reports, sales reports, cash drawer reports, invoices, summaries, or other documents, do NOT pretend that a report value is a receipt total.\n* Only populate \"amount\" when a clearly identifiable transaction total exists.\n\nOutput ONLY the JSON object. No markdown, no code fences, no explanations, and no additional text.\n",
+        "inputType": "binary",
+        "options": {}
+      },
+      "id": "b770b95c-46a2-435a-9f87-e0804339c637",
+      "name": "Analyze an image",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        -48
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "uvepaXsJwH65n3wC",
+          "name": "Google Gemini(PaLM) Api account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const g = $input.item.json;\n\n// Get Gemini's actual text output\nlet raw = g.content?.parts?.[0]?.text ?? '';\n\nraw = String(raw)\n  .replace(/```json/gi, '')\n  .replace(/```/g, '')\n  .trim();\n\nlet parsed = {};\n\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  parsed = {};\n}\n\n// Get Telegram submission timestamp\nconst tg = $('Telegram Trigger').item.json;\nconst ts = tg?.message?.date;\n\nconst d = ts ? new Date(ts * 1000) : new Date();\n\nconst pad = (n) => String(n).padStart(2, '0');\n\n// ISO submission date (for the spreadsheet)\nconst submission_date =\n  d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());\n\n// Human-readable date used as the Google Drive FOLDER name, e.g. 'September 6, 2026'\nconst monthNames = [\n  'January', 'February', 'March', 'April', 'May', 'June',\n  'July', 'August', 'September', 'October', 'November', 'December'\n];\nconst folder_date =\n  monthNames[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();\n\n// Extract Gemini data\nconst merchant = parsed.merchant ?? '';\nconst amount = parsed.amount ?? '';\nconst date = parsed.date ?? '';\n\n// Generate filename\nconst safeMerchant = String(merchant || 'receipt')\n  .replace(/[^a-zA-Z0-9]+/g, '_')\n  .replace(/^_+|_+$/g, '')\n  .slice(0, 40) || 'receipt';\n\nconst fileName =\n  submission_date + '_' + safeMerchant + '_' + Date.now() + '.jpg';\n\nreturn [{\n  json: {\n    merchant,\n    amount,\n    date,\n    submission_date,\n    folder_date,\n    fileName\n  }\n}];"
+      },
+      "id": "1fd6bf11-7bed-470e-8387-d2345fb2db28",
+      "name": "Parse Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "Telegram Receipt Automation Folder",
+        "limit": 1,
+        "filter": {
+          "whatToSearch": "folders"
+        },
+        "options": {
+          "fields": [
+            "id",
+            "name"
+          ]
+        }
+      },
+      "id": "39c702ff-3c47-44af-b840-8da85a08dace",
+      "name": "Find Parent Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -48,
+        112
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "amXtCREMhTU2im9t",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-parent",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "01b56d68-c12b-47fd-bfae-bf381189adf2",
+      "name": "Parent Folder Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "parent-id",
+              "name": "parentFolderId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5b63f879-6be3-43ba-8398-e9b816744f55",
+      "name": "Parent Folder Ready",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        640,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": "={{ $(\"Parse Receipt\").item.json.folder_date }}",
+        "limit": 1,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "={{ $json.parentFolderId }}"
+          },
+          "whatToSearch": "folders"
+        },
+        "options": {
+          "fields": [
+            "id",
+            "name"
+          ]
+        }
+      },
+      "id": "cbc05407-3297-46f6-a7ac-87b075dd7725",
+      "name": "Find Date Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        144
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "amXtCREMhTU2im9t",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-folder",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d7a0be9f-ad5f-4f69-b9c1-b38139635d44",
+      "name": "Date Folder Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "date-folder-id",
+              "name": "dateFolderId",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d7aa9f9c-0e3a-42af-afc5-8b1d1f544d2f",
+      "name": "Date Folder Ready",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1344,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $(\"Parse Receipt\").item.json.folder_date }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $(\"Parent Folder Ready\").item.json.parentFolderId }}"
+        },
+        "options": {}
+      },
+      "id": "7c5fdc89-7445-486a-8ce4-171eec0010ec",
+      "name": "Create Date Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1136,
+        160
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "amXtCREMhTU2im9t",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "Telegram Receipt Automation Folder",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "root",
+          "cachedResultName": "/ (Root folder)"
+        },
+        "options": {}
+      },
+      "id": "c9e71b8b-cc91-47b0-8452-a6e44623c8db",
+      "name": "Create Parent Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        464,
+        192
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "amXtCREMhTU2im9t",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Set Spreadsheet ID').first().json.spreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Receipt Automation",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "merchant",
+              "displayName": "merchant",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "submission_date",
+              "displayName": "submission_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "folder_date",
+              "displayName": "folder_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fileName",
+              "displayName": "fileName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "spreadsheetId",
+              "displayName": "spreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f58fccba-489a-4ded-8d8b-8597d109a3db",
+      "name": "Append to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1072,
+        -192
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "piPE9KE3gZV4J6ui",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "e2cc637f-8f45-4847-93d2-4c6b99cdccd9",
+      "name": "Combine Folder + Photo",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1536,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "name": "={{ $(\"Parse Receipt\").item.json.fileName }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $(\"Date Folder Ready\").item.json.dateFolderId }}"
+        },
+        "options": {}
+      },
+      "id": "84731281-b74e-47d4-8411-baff005892ad",
+      "name": "Upload Photo to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1712,
+        64
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "amXtCREMhTU2im9t",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 1. Telegram Receipt Submission & Image Prep\n\nReceives receipt images submitted by the user through Telegram. The trigger also downloads the actual image (large size) and makes it available as binary image data for processing.\n\n**Passes to next step:** binary receipt image + Telegram message metadata (chat id, submission date).",
+        "height": 324,
+        "width": 372,
+        "color": 5
+      },
+      "id": "33a25d13-2e2d-409a-96e9-ef231bf4b2eb",
+      "name": "Note - Telegram Trigger",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1072,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Gemini Receipt Extraction\n\nAnalyzes the receipt image and extracts the merchant, total amount, and receipt date, returning strict JSON only.\n\n**Passes to next step:** Gemini JSON text response containing merchant, amount and date.",
+        "height": 288,
+        "width": 336,
+        "color": 3
+      },
+      "id": "81ebe9fd-90f6-4951-8b85-2e6ab755c8c7",
+      "name": "Note - Gemini",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -688,
+        -368
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Parse & Structure Receipt Data\n\nParses Gemini's JSON response and determines the Telegram submission date. Prepares the extracted receipt data, ISO submission date, human-readable folder date, and a safe upload filename.\n\n**Passes to next step:** merchant, amount, date, submission_date, folder_date, fileName.",
+        "height": 308,
+        "width": 372,
+        "color": 6
+      },
+      "id": "ad69d66b-4699-4044-982a-8dcb9a43791d",
+      "name": "Note - Parse Receipt",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -512,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Find or Create Parent Folder\n\nChecks whether the main \"Telegram Receipt Automation Folder\" already exists in Google Drive, and creates it only when necessary.\n\n**Passes to next step:** parentFolderId used to scope the date-folder lookup.",
+        "height": 300,
+        "width": 380,
+        "color": 7
+      },
+      "id": "2dfc696c-bb16-4b1a-a73e-765d84f57624",
+      "name": "Note - Parent Folder",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Find or Create Date Folder\n\nChecks for a folder matching the Telegram submission date inside the parent folder and creates it when necessary.\n\n**Passes to next step:** dateFolderId used as the upload destination.",
+        "height": 300,
+        "width": 380,
+        "color": 7
+      },
+      "id": "efdfdb64-a3d0-4f8a-9149-ecf54c58908d",
+      "name": "Note - Date Folder",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6. Upload Original Receipt Image\n\nCombines the resolved date folder with the original Telegram image, then stores the original receipt image inside the corresponding submission-date folder.\n\n**Result:** original receipt file saved in Drive under the date folder.",
+        "height": 260,
+        "width": 360,
+        "color": 5
+      },
+      "id": "1e9667c3-f9bd-4e3a-b3a1-2345736ba2c0",
+      "name": "Note - Upload Photo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 8. Save Receipt Data to Google Sheets\n\nStores the structured receipt information (merchant, amount, date, submission date, filename) for record keeping and tracking.",
+        "height": 220,
+        "width": 340,
+        "color": 2
+      },
+      "id": "4f5c6ae5-bd42-4ae9-94a1-14db2798be8c",
+      "name": "Note - Google Sheets",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = 'Receipt Automation' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
+        "limit": 1,
+        "filter": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -224,
+        -272
+      ],
+      "id": "2f0dd940-6319-4d14-a11a-e769f2e7d5a5",
+      "name": "Search files and folders",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "amXtCREMhTU2im9t",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a9ce8c7a-eb66-4201-9067-7eff9e790db4",
+              "leftValue": "={{$json.id}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -16,
+        -272
+      ],
+      "id": "2c036752-c191-40a7-a8fe-e13107ecd206",
+      "name": "If",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "resource": "spreadsheet",
+        "title": "Receipt Automation",
+        "sheetsUi": {
+          "sheetValues": [
+            {
+              "title": "Receipt Automation"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        176,
+        -192
+      ],
+      "id": "bce82079-bfd0-4214-904c-6037ebb27829",
+      "name": "Create spreadsheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "piPE9KE3gZV4J6ui",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "080bf125-0b42-4ce2-bc56-3faf245906aa",
+              "name": "spreadsheetId",
+              "value": "={{ $json.spreadsheetId || $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        400,
+        -272
+      ],
+      "id": "58423ef2-3db0-49cb-a74f-c041622661b7",
+      "name": "Set Spreadsheet ID"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        624,
+        -192
+      ],
+      "id": "dd4176de-2b5e-4a42-b075-ba233b5d8d8d",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b113c632-88ab-4af3-aa77-c6c69febb55e",
+              "name": "merchant",
+              "value": "={{ $json.merchant }}",
+              "type": "string"
+            },
+            {
+              "id": "66480348-26c0-4be4-b7a5-f5f8812c4113",
+              "name": "amount",
+              "value": "={{ $json.amount }}",
+              "type": "string"
+            },
+            {
+              "id": "bd224b1e-2eec-4302-9e8d-4401fd7a2b4b",
+              "name": "date",
+              "value": "={{$json.date}}",
+              "type": "string"
+            },
+            {
+              "id": "d3409777-e604-471a-a273-de1426e769b7",
+              "name": "submission_date",
+              "value": "={{$json.submission_date}}",
+              "type": "string"
+            },
+            {
+              "id": "15f0e782-8674-4cf4-8a18-cd1d7cbb536d",
+              "name": "folder_date",
+              "value": "={{$json.folder_date}}",
+              "type": "string"
+            },
+            {
+              "id": "5e785abf-bb4b-434e-8fb6-70d333b78ead",
+              "name": "fileName",
+              "value": "={{$json.fileName}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        848,
+        -192
+      ],
+      "id": "7685aacf-58e4-4dcc-af6a-65cf0e022ace",
+      "name": "Prepare Receipt Data"
+    },
+    {
+      "parameters": {
+        "content": "## 7. Find or Create Google Sheets Log\n\nChecks whether the Gmail processing spreadsheet exists and creates it only when necessary.\n\nPasses to next step: spreadsheetId used by the Google Sheets append step.",
+        "height": 208,
+        "width": 416
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        -544
+      ],
+      "id": "5cb9ba95-c8c7-4a09-ac6d-f0fb5928079f",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Combine Folder + Photo",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Analyze an image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze an image": {
+      "main": [
+        [
+          {
+            "node": "Parse Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Receipt": {
+      "main": [
+        [
+          {
+            "node": "Find Parent Folder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Parent Folder": {
+      "main": [
+        [
+          {
+            "node": "Parent Folder Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parent Folder Exists?": {
+      "main": [
+        [
+          {
+            "node": "Parent Folder Ready",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Parent Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parent Folder Ready": {
+      "main": [
+        [
+          {
+            "node": "Find Date Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Date Folder": {
+      "main": [
+        [
+          {
+            "node": "Date Folder Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date Folder Exists?": {
+      "main": [
+        [
+          {
+            "node": "Date Folder Ready",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Date Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date Folder Ready": {
+      "main": [
+        [
+          {
+            "node": "Combine Folder + Photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Date Folder": {
+      "main": [
+        [
+          {
+            "node": "Date Folder Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Parent Folder": {
+      "main": [
+        [
+          {
+            "node": "Parent Folder Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Folder + Photo": {
+      "main": [
+        [
+          {
+            "node": "Upload Photo to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Set Spreadsheet ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Set Spreadsheet ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Spreadsheet ID": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Prepare Receipt Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Receipt Data": {
+      "main": [
+        [
+          {
+            "node": "Append to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "021e4034-9ce7-4689-a70d-4bef75661e0e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bea3b87faba7b3fa785787e28e900fbcffd6ca06e760853f2a1d0fbc6758d5ed"
+  },
+  "nodeGroups": [],
+  "id": "gYtqiyyN13GyCR9E",
+  "tags": []
+}
